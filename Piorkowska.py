@@ -160,5 +160,179 @@ ax.set_ylabel('Percent of names in each year which were in Top1000 of all time')
 ax.legend()
 ax.set_title('What percent of names per sex and year appear in Top1000 ranking')
 
+# Zadanie 9: Zweryfikuj hipotezę czy prawdą jest, że w obserwowanym okresie rozkład ostatnich liter imion męskich uległ istotnej zmianie? 
+
+# dokonaj agregacji wszystkich urodzeń w pełnym zbiorze danych z podziałem na rok i płeć i ostatnią literę
+# Dodanie kolumny Last_letter
+all_data['Last_letter'] = all_data['Name'].apply(lambda x: x[-1])
+
+# Agregacja danych
+letter_popularity = all_data.groupby(['Year', 'Sex', 'Last_letter'])['Count'].sum().reset_index()
+
+# Wyodrebnienie lat do sprawdzenia 
+years_to_compare = [1917, 1967, 2022]
+selected_years_data = letter_popularity[letter_popularity['Year'].isin(years_to_compare)].copy()
+
+selected_years_data['Total_births'] = selected_years_data.groupby(['Year', 'Sex'])['Count'].transform('sum')
+selected_years_data['Normalized_popularity'] = selected_years_data['Count'] / selected_years_data['Total_births']
+
+print(f"Zagregowane dane z popularnoscia ostatniej litery zadanie 9. \n Dane dla lat 1917, 1967, 2022: \n {selected_years_data}")
+
+fig, ax = plt.subplots(figsize=(12, 8), num='Zadanie 9.4 Wykres slupkowy popularnosc litery')
+
+# Unikalne litery z kolumny dot. ostatniej litery
+letters = selected_years_data['Last_letter'].unique()
+# Unikalne lata z kolumny dot. lat
+years_plot = selected_years_data['Year'].unique()
+num_years = len(years_plot)
+bar_width = 0.2
+
+# Bar - plot dla każdego roku (mężczyźni)
+for i, year in enumerate(years_plot):
+    data_year = selected_years_data[(selected_years_data['Year'] == year) & (selected_years_data['Sex'] == 'M')]
+    
+    # Pozycjonowanie bar plotów 
+    positions = [x + i * bar_width for x in range(len(data_year['Last_letter']))]
+    
+    ax.bar(positions, data_year['Normalized_popularity'], width=bar_width, label=str(year))
+
+
+# Pozycjonowanie oznaczeń oś x 
+ax.set_xticks([x + (num_years - 1) * bar_width / 2 for x in range(len(letters))])
+ax.set_xticklabels(letters)
+ax.set_xlabel('Last Letter')
+ax.set_ylabel('Normalized Popularity')
+ax.set_title('Normalized popularity of last letters of man names over years')
+
+ax.legend(title='Year', loc='upper right')
+
+# Wyświetl, dla której litery wystąpił największy wzrost/spadek między rokiem 1917 a 2022)
+# Najwiekszy wzrost lub spadek - najwieksza abs(roznica)
+data_1917 = selected_years_data[(selected_years_data['Year'] == 1917) & (selected_years_data['Sex'] == 'M')]
+data_2022 = selected_years_data[(selected_years_data['Year'] == 2022) & (selected_years_data['Sex'] == 'M')]
+
+merged_data = pd.merge(data_1917, data_2022, on='Last_letter', suffixes=('_1917', '_2022'))
+
+merged_data['Change'] = abs(merged_data['Normalized_popularity_2022'] - merged_data['Normalized_popularity_1917'])
+
+max_change_letter = merged_data.loc[merged_data['Change'].idxmax()]['Last_letter']
+max_change_value = merged_data['Change'].max()
+
+print(f"Zadanie 9.4 \n Największy wzrost/spadek dla litery: '{max_change_letter} (wartosc bezwzgledna z roznicy)'")
+
+# 3 litery z najwieksza zmiana:
+top3_changed_letters = merged_data.nlargest(3, 'Change')['Last_letter'].tolist()
+
+# Calkowita liczba urodzen dla kazdego roku i plci 
+letter_popularity['Total_births'] = letter_popularity.groupby(['Year', 'Sex'])['Count'].transform('sum')
+
+# Normalizacja popularności
+letter_popularity['Normalized_popularity'] = letter_popularity['Count'] / letter_popularity['Total_births']
+
+
+data_top3_letters = letter_popularity[letter_popularity['Last_letter'].isin(top3_changed_letters) & (letter_popularity['Sex'] == 'M')]
+
+# Wykres trendu popularności dla każdej z wybranych liter
+fig, ax = plt.subplots(figsize=(12, 8), num='Zadanie 9.5 Przebieg trendu popularnosci')
+
+for letter in top3_changed_letters:
+    # data_letter = data_top3_letters[data_top3_letters['Last_letter'] == letter]
+    # ax.plot(data_letter['Year'], data_letter['Count'], label=f'Letter {letter}')
+
+    data_letter = letter_popularity[(letter_popularity['Last_letter'] == letter) & (letter_popularity['Sex'] == 'M')]
+    ax.plot(data_letter['Year'], data_letter['Normalized_popularity'], label=f'Letter {letter}')
+
+ax.set_xlabel('Year')
+ax.set_ylabel('Normalized popularity of last names letters')
+ax.set_title('Trend of popularity for top 3 changed last letters (male mames) over years')
+ax.legend()
+
+# Zadanie 10: 
+# Imiona nadawane zarówno dziewczynkom jak i chłopcom w obu przedziałach czasowych razem
+common_names = set(top1000_ranking[top1000_ranking['Sex'] == 'M']['Name']).intersection(set(top1000_ranking[top1000_ranking['Sex'] == 'F']['Name']))
+
+# Wyszczegolnianie danych dla wspolncyh imion
+common_names_data = all_data[all_data['Name'].isin(common_names)].copy()
+
+# Zagregowane dane do roku 1930
+data_before_1930 = common_names_data[common_names_data['Year'] <= 1930]
+
+# Zagregowane dane od roku 2000
+data_after_2000 = common_names_data[common_names_data['Year'] >= 2000]
+
+# Grupowanie danych po imionach i płci
+grouped_data_before_1930 = data_before_1930.groupby(['Name', 'Sex'])['Count'].sum().unstack(fill_value=0).reset_index()
+grouped_data_after_2000 = data_after_2000.groupby(['Name', 'Sex'])['Count'].sum().unstack(fill_value=0).reset_index()
+
+# Stosunek imion męskich do żeńskich z uwzględnieniem zabezpieczenia niedzielenia przez zero tj. zero zastępowane bardzo małą liczbą
+grouped_data_before_1930['Ratio'] = grouped_data_before_1930['M'] / (grouped_data_before_1930['F'].replace(0, 1e-10))
+grouped_data_after_2000['Ratio'] = grouped_data_after_2000['M'] / (grouped_data_after_2000['F'].replace(0, 1e-10))
+# grouped_data_before_1930['Ratio'] = grouped_data_before_1930['M'] / grouped_data_before_1930['F']
+# grouped_data_after_2000['Ratio'] = grouped_data_after_2000['M'] / grouped_data_after_2000['F']
+
+# Polaczenie wynikow ratio dla imion dla dat przed 1930 i po 2000
+data_before_1930_only_names_and_ratio = grouped_data_before_1930[['Name', 'Ratio']]
+data_after_2000_only_names_and_ratio = grouped_data_after_2000[['Name', 'Ratio']]
+
+
+before1930_after2000_merge_data = pd.merge(data_before_1930_only_names_and_ratio, data_after_2000_only_names_and_ratio, on='Name', suffixes=('_before_1930', '_after_2000'))
+
+# Różnica w stosunkach między latami dla imion
+before1930_after2000_merge_data['Ratio_Difference'] = abs(before1930_after2000_merge_data['Ratio_after_2000'] - before1930_after2000_merge_data['Ratio_before_1930'])
+
+# 2 imiona z największą różnicą w ratio między dwoma przedziałami dat 
+# Znalezienie dwóch imion z największą różnicą
+top_2_diff_ratio_names = before1930_after2000_merge_data.nlargest(2, 'Ratio_Difference')
+
+# Wyświetlenie imion
+print("Zadanie 10.1 \n")
+print("Dwa imiona z największą zmianą w stosunku między przed 1930 a po 2000: \n")
+print(top_2_diff_ratio_names[['Name', 'Ratio_before_1930', 'Ratio_after_2000', 'Ratio_Difference']])
+
+# Wyswietlanie przebiegu - kroki
+selected_names_data_before_1930 = data_before_1930[data_before_1930['Name'].isin(top_2_diff_ratio_names['Name'])].copy()
+selected_names_data_after_2000 = data_after_2000[data_after_2000['Name'].isin(top_2_diff_ratio_names['Name'])].copy()
+
+selected_names_data_before_1930['Time Period'] = 'Before 1930'
+selected_names_data_after_2000['Time Period'] = 'After 2000'
+
+# Łączenie danych przed 1930 i po 2000
+combined_data = pd.concat([selected_names_data_before_1930, selected_names_data_after_2000])
+
+# Unikalne lata
+years = combined_data['Year'].unique()
+ratio_data = []
+
+# Iterowanie po latach
+for year in years:
+    # Dane dla danego roku
+    data_year = combined_data[combined_data['Year'] == year]
+
+    # Pobranie unikalnych imion dla obu płci
+    unique_names_male = data_year[data_year['Sex'] == 'M']['Name'].unique()
+    unique_names_female = data_year[data_year['Sex'] == 'F']['Name'].unique()
+
+    # Patrzymy tylko na imiona, ktore wystepowaly zarowno u kobiet jak i mezczyzn np. Walter F i Walter M
+    common_names = set(unique_names_male) & set(unique_names_female)
+    for name in common_names:
+        count_male = data_year[(data_year['Name'] == name) & (data_year['Sex'] == 'M')]['Count'].values[0] if name in unique_names_male else 0
+        count_female = data_year[(data_year['Name'] == name) & (data_year['Sex'] == 'F')]['Count'].values[0] if name in unique_names_female else 0
+
+        # Obliczamy stosunek i dodajemy do listy
+        ratio = count_male / (count_female + 1e-10)  # Dodajemy małą wartość, aby uniknąć dzielenia przez zero
+        ratio_data.append({'Year': year, 'Name': name, 'Ratio': ratio})
+
+# Tworzenie DataFrame z listy
+ratio_df = pd.DataFrame(ratio_data)
+ratio_df = ratio_df.sort_values(by='Year')
+
+fig, ax = plt.subplots(figsize=(12, 8), num='Zadanie 10.')
+for name in top_2_diff_ratio_names['Name']:
+    data_name = ratio_df[ratio_df['Name'] == name]
+    ax.plot(data_name['Year'], data_name['Ratio'], label=name)
+ax.set_xlabel('Year')
+ax.set_ylabel('male-to-female ratio')
+ax.set_title('Trend of male-to-female ratio for names which ratio has the biggest diff data after 2000 and before 1930')
+ax.legend()
 
 plt.show()
