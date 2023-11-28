@@ -335,4 +335,128 @@ ax.set_ylabel('male-to-female ratio')
 ax.set_title('Trend of male-to-female ratio for names which ratio has the biggest diff data after 2000 and before 1930')
 ax.legend()
 
+# Zadania z bazy danych
+import sqlite3
+# Zadanie 1. BAZA: Wczytaj dane z bazy opisującej dane demograficzne w okresie od 1935-2020r w poszczególnych grupach wiekowych
+# Nazwa pliku bazy danych
+database_name = 'demography_us_2023.sqlite3'
+# Pełna ścieżka do pliku bazy danych
+database_path = os.path.join(data_path, database_name)
+
+# Nawiązanie połączenia z bazą danych 
+conn = sqlite3.connect(database_path)
+
+# Kursory
+cursor_wczytanie = conn.cursor()
+# Utworzenie obiektu kursora - zadanie z przyrostem naturalnym
+cursor = conn.cursor()
+# Utworzenie obiektu kursora - zadanie ze współczynnikiem przeżywalności
+cursor2 = conn.cursor()
+# Zadanie 4 dolacz do DataFrame smierci w kazdym roku
+cursor3 = conn.cursor()
+
+
+# Zapytanie - dane demograficzne w okresie 1935-2020
+wczytanie_danych_query = """SELECT * FROM population WHERE population.Year between 1935 and 2020"""
+# Zapytanie - przyrost naturalny
+query_zadanie1 = "with sum_deaths as (SELECT DISTINCT deaths.Year, SUM(deaths.Total) OVER (PARTITION BY deaths.Year) as sum_death FROM deaths), natural_increase as (select births.Year, births.Total as births_total, sum_deaths.sum_death from births left join sum_deaths on sum_deaths.Year = births.Year) select natural_increase.Year, (natural_increase.births_total - natural_increase.sum_death) as NaturalIncrease from natural_increase where natural_increase.Year between 1935 and 2020"
+# Zapytanie - współczynnik przeżywalności (1 - umieralnosc tj. deaths at age 0/births dla danych lat)
+query_zadanie2 = """
+SELECT Year, (1-(deaths_total/births_total)) as wspolczynnik_przezywalnosci
+FROM
+(
+SELECT deaths.Year, deaths.Total as deaths_total, births.Total as births_total from deaths left join births on births.Year = deaths.Year where deaths.Age = 0) x where x.Year between 1935 and 2020
+"""
+
+query_zadanie3 = """SELECT DISTINCT deaths.Year, SUM(deaths.Total) OVER (PARTITION BY deaths.Year) as sum_death FROM deaths where deaths.Year between 1935 and 2020"""
+
+
+# Wykonanie zapytania
+cursor_wczytanie.execute(wczytanie_danych_query)
+cursor.execute(query_zadanie1)
+cursor2.execute(query_zadanie2)
+cursor3.execute(query_zadanie3)
+
+
+# Pobranie wyników zapytania
+populacja_przedzial_lat = cursor_wczytanie.fetchall()
+przyrost_naturalny = cursor.fetchall()
+wspolczynnik_przezycia = cursor2.fetchall()
+smierci_lata = cursor3.fetchall()
+
+# Naglowki tabel
+headers_population = [description[0] for description in cursor_wczytanie.description]
+headers = [description[0] for description in cursor.description]
+headers2 = [description[0] for description in cursor2.description]
+
+# Wczytaj smierci do dataframe
+smierci_lata_df = pd.read_sql_query(query_zadanie3, conn)
+
+# Wczytaj przyrost naturalny do dataframe
+przyrost_dataframe = pd.read_sql_query(query_zadanie1, conn)
+
+# Zamknięcie połączenia z bazą danych
+conn.close()
+
+# print(f"Zadanie 1. BAZA wczytanie population w latach 1935 - 2020: \n {populacja_przedzial_lat}")
+print(f"Zadanie 2. Baza \n Przyrost naturalny w każdym roku (rok - przyrost): \n {przyrost_naturalny}")
+
+# Przygotowanie danych do wykresu
+years_query1 = [result[0] for result in przyrost_naturalny]
+natural_increase = [result[1] for result in przyrost_naturalny]
+
+# Tworzenie wykresu
+plt.figure(figsize=(10, 6), num='Zadanie BAZA Przyrost naturalny')
+plt.bar(years_query1, natural_increase, color='blue')
+plt.title('Przyrost naturalny w każdym roku')
+plt.xlabel('Rok')
+plt.ylabel('Przyrost naturalny')
+
+print(f"Zadanie 3. BAZA: \n Wspolczynnik przezywalnosci dzieci w pierwszym roku życia w kazdym roku 1935-2020 \n {headers2} \n {wspolczynnik_przezycia}")
+
+years_query2 = [result[0] for result in wspolczynnik_przezycia]
+survival_rate = [result[1] for result in wspolczynnik_przezycia]
+
+# Tworzenie wykresu
+plt.figure(figsize=(10, 6), num='Zadanie BAZA Wspolczynnik przezycia')
+plt.bar(years_query2, survival_rate, color='green')
+plt.title('Wspolczynnik przezywalnosci niemowlat (do 1 yo) w każdym roku')
+plt.xlabel('Rok')
+plt.ylabel('Wspolczynnik przezywalnosci')
+
+
+# Ciag dalszy zadanie porownawcze 
+tabela_smierci_plus_birth_txt = pd.merge(smierci_lata_df, total_births_per_year, on='Year')
+tabela_smierci_plus_birth_txt['IncreaseFromNames'] = tabela_smierci_plus_birth_txt['Total_birth_fm'] - tabela_smierci_plus_birth_txt['sum_death']
+wszystkie_przyrosty = pd.merge(tabela_smierci_plus_birth_txt, przyrost_dataframe, on='Year')
+
+# Blad wzgledny
+wszystkie_przyrosty['RelativeError'] = abs((wszystkie_przyrosty['IncreaseFromNames'] - wszystkie_przyrosty['NaturalIncrease']) / wszystkie_przyrosty['NaturalIncrease']) * 100
+blad_wzgledny_max_rok = wszystkie_przyrosty.loc[wszystkie_przyrosty['RelativeError'].idxmax(), 'Year']
+blad_wzgledny_min_rok = wszystkie_przyrosty.loc[wszystkie_przyrosty['RelativeError'].idxmin(), 'Year']
+
+blad_wzgledny_max = wszystkie_przyrosty.loc[wszystkie_przyrosty['RelativeError'].idxmax(), 'RelativeError']
+blad_wzgledny_min = wszystkie_przyrosty.loc[wszystkie_przyrosty['RelativeError'].idxmin(), 'RelativeError']
+
+print(f"Zadanie 4. BAZA: Największy błąd względny wystąpił w roku {blad_wzgledny_max_rok} i wyniósł {blad_wzgledny_max:.2f}%.")
+print(f"Zadanie 4. BAZA: Najmniejszy błąd względny wystąpił w roku {blad_wzgledny_min_rok} i wyniósł {blad_wzgledny_min:.2f}%.")
+
+
+plt.figure(figsize=(10, 6), num='Zadanie 4. BAZA Blad wzgledny')
+plt.plot(wszystkie_przyrosty['Year'], wszystkie_przyrosty['RelativeError'], marker='o', linestyle='-', color='b')
+plt.title('Błąd względny między IncreaseFromNames a NaturalIncrease z bazy danych')
+plt.xlabel('Rok')
+plt.ylabel('Błąd względny (%)')
+
+plt.annotate(f'Max Error\nYear: {blad_wzgledny_max_rok}, Value: {blad_wzgledny_max:.2f}%', 
+             xy=(blad_wzgledny_max_rok, blad_wzgledny_max), xytext=(blad_wzgledny_max_rok - 8, blad_wzgledny_max - 15),
+             arrowprops=dict(facecolor='red', shrink=0.05), color='red', fontsize=10)
+
+plt.annotate(f'Min Error\nYear: {blad_wzgledny_min_rok}, Value: {blad_wzgledny_min:.2f}%', 
+             xy=(blad_wzgledny_min_rok, blad_wzgledny_min), xytext=(blad_wzgledny_min_rok - 5, blad_wzgledny_min + 8),
+             arrowprops=dict(facecolor='green', shrink=0.05), color='green', fontsize=10)
+plt.grid(True)
+
+
+
 plt.show()
